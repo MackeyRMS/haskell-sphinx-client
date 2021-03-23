@@ -18,6 +18,8 @@ module Text.Search.Sphinx
   , Configuration(..), defaultConfig
   ) where
 
+import           Control.Applicative
+import           Control.Monad
 import qualified Text.Search.Sphinx.Types                as T (Filter (..),
                                                                Match,
                                                                Query (..),
@@ -144,7 +146,7 @@ buildExcerpts config docs indexes words = do
     T.RETRY   -> return $ T.Retry (errorMessage conv response)
     T.ERROR n -> return $ T.Error n (errorMessage conv response)
   where
-    getResults response conv = runGet ((length docs) `times` getTxt conv) response
+    getResults response conv = runGet (length docs `times` getTxt conv) response
     errorMessage conv response = runGet (getTxt conv) response
 
     makeBuildExcerpt putExcerpt = do
@@ -171,7 +173,7 @@ buildExcerpts config docs indexes words = do
     modeFlag cfg setting value = if setting cfg then value else 0
 
     excerptFlags :: ExConf.ExcerptConfiguration -> Int
-    excerptFlags cfg = foldl (.|.) 1 (map (\(s,v) -> modeFlag cfg s v) [
+    excerptFlags cfg = foldl (.|.) 1 (map (uncurry (modeFlag cfg)) [
         (ExConf.exactPhrase,      2 )
       , (ExConf.singlePassage,    4 )
       , (ExConf.useBoundaries,    8 )
@@ -187,7 +189,7 @@ buildExcerpts config docs indexes words = do
 -- For a single query, just use the query method
 -- Easier handling of query result than runQueries'
 runQueries :: Configuration -> [T.Query] -> IO (T.Result [T.QueryResult])
-runQueries cfg qs = runQueries' cfg qs >>= return . toSearchResult
+runQueries cfg qs = toSearchResult <$> runQueries' cfg qs
   where
     --   with batched queries, each query can have an error code,
     --     regardless of the error code given for the entire batch
@@ -241,7 +243,7 @@ runQueries' config qs = do
 #else
                       8
 #endif
-                        + (fromEnum $ BS.length (runPut qr))
+                      + fromEnum (BS.length (runPut qr))
 #ifndef ONE_ONE_BETA
                 num 0
 #endif
@@ -290,9 +292,8 @@ getResponse :: Handle -> IO (T.Status, BS.ByteString)
 getResponse conn = do
   header <- BS.hGet conn 8
   let (status, version, len) = readHeader header
-  if len == 0
-    then error "received zero-sized searchd response (bad query?)"
-    else return ()
+  when (len == 0) $
+    error "received zero-sized searchd response (bad query?)"
   response <- BS.hGet conn (fromIntegral len)
   return (status, response)
 
