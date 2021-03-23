@@ -1,4 +1,4 @@
-{-# LANGUAGE CPP #-}
+{-# LANGUAGE CPP               #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- The following functions are not yet implemented:
@@ -6,7 +6,7 @@
 -- resetFilters, resetGroupBy
 -- updateAttributes,
 -- buildKeyWords, status, open, close
-module Text.Search.Sphinx 
+module Text.Search.Sphinx
   ( escapeText
   , query
   , buildExcerpts
@@ -18,41 +18,55 @@ module Text.Search.Sphinx
   , Configuration(..), defaultConfig
   ) where
 
-import qualified Text.Search.Sphinx.Types as T (
-  Match,
-  Query(..),
-  VerCommand(VcSearch, VcExcerpt),
-  SearchdCommand(ScSearch, ScExcerpt),
-  Filter, Filter(..),
-  fromEnumFilter, Filter(..),
-  QueryStatus(..), toStatus, Status(..),
-  SingleResult(..), Result(..), QueryResult(..))
+import qualified Text.Search.Sphinx.Types                as T (Filter (..),
+                                                               Match,
+                                                               Query (..),
+                                                               QueryResult (..),
+                                                               QueryStatus (..),
+                                                               Result (..),
+                                                               SearchdCommand (ScExcerpt, ScSearch),
+                                                               SingleResult (..),
+                                                               Status (..),
+                                                               VerCommand (VcExcerpt, VcSearch),
+                                                               fromEnumFilter,
+                                                               toStatus)
 
-import Text.Search.Sphinx.Configuration (Configuration(..), defaultConfig)
-import qualified Text.Search.Sphinx.ExcerptConfiguration as ExConf (ExcerptConfiguration(..))
-import Text.Search.Sphinx.Get (times, getResult, readHeader, getStr, getTxt)
-import Text.Search.Sphinx.Put (num, num64, float, enum, list, numC, strC, foldPuts,
-                              numC64, stringIntList, str, txt, cmd, verCmd)
+import           Text.Search.Sphinx.Configuration        (Configuration (..),
+                                                          defaultConfig)
+import qualified Text.Search.Sphinx.ExcerptConfiguration as ExConf (ExcerptConfiguration (..))
+import           Text.Search.Sphinx.Get                  (getResult, getStr,
+                                                          getTxt, readHeader,
+                                                          times)
+import           Text.Search.Sphinx.Put                  (cmd, enum, float,
+                                                          foldPuts, list, num,
+                                                          num64, numC, numC64,
+                                                          str, strC,
+                                                          stringIntList, txt,
+                                                          verCmd)
 
-import Data.Binary.Put (Put, runPut)
-import Data.Binary.Get (runGet, getWord32be)
-import qualified Data.ByteString.Lazy as BS
-import qualified Data.ByteString.Lazy.Char8 as BS8
-import Data.Int (Int64)
+import           Data.Binary.Get                         (getWord32be, runGet)
+import           Data.Binary.Put                         (Put, runPut)
+import qualified Data.ByteString.Lazy                    as BS
+import qualified Data.ByteString.Lazy.Char8              as BS8
+import           Data.Int                                (Int64)
 
-import Network (connectTo, PortID(PortNumber))
-import System.IO (Handle, hFlush)
-import Data.Bits ((.|.))
+-- import Network (connectTo, PortID(PortNumber))
+import qualified Network.Socket                          as N
+import qualified Network.Socket.ByteString               as N
 
-import Prelude hiding (filter, tail)
-import Data.List (nub)
+import           Data.Bits                               ((.|.))
+import           System.IO                               (Handle, IOMode (..),
+                                                          hFlush)
 
-import Data.Text (Text)
-import qualified Data.Text as X
-import qualified Data.Text.ICU.Convert as ICU
+import           Data.List                               (nub)
+import           Prelude                                 hiding (filter, tail)
+
+import           Data.Text                               (Text)
+import qualified Data.Text                               as X
+import qualified Data.Text.ICU.Convert                   as ICU
 
 {- the funnest way to debug this is to run the same query with an existing working client and look at the difference
- - sudo tcpflow -i lo dst port 9306 
+ - sudo tcpflow -i lo dst port 9306
 import Debug.Trace; debug a = trace (show a) a
 -}
 
@@ -99,7 +113,12 @@ simpleQuery q = T.Query q "*" X.empty
 
 connect :: String -> Int -> IO Handle
 connect host port = do
-  connection <- connectTo host (PortNumber $ fromIntegral $ port)
+  let hints = N.defaultHints {N.addrSocketType = N.Stream}
+  addr:_ <- N.getAddrInfo (Just hints) (Just host) (Just $ show port)
+  sock <- N.socket (N.addrFamily addr) (N.addrSocketType addr) (N.addrProtocol addr)
+  connection <- N.socketToHandle sock ReadWriteMode
+
+  -- connection <- connectTo host (PortNumber $ fromIntegral $ port)
   bs         <- BS.hGet connection 4
   let version   = runGet getWord32be bs
       myVersion = runPut (num 1)
@@ -130,7 +149,7 @@ buildExcerpts config docs indexes words = do
 
     makeBuildExcerpt putExcerpt = do
       cmd    T.ScExcerpt
-      verCmd T.VcExcerpt  
+      verCmd T.VcExcerpt
       num $ fromEnum $ BS.length (runPut putExcerpt)
       putExcerpt
 
@@ -211,12 +230,12 @@ runQueries' config qs = do
     BS.hPut conn (request queryReq)
     hFlush conn
     getSearchResult conn conv
-  where 
+  where
     numQueries = length qs
     request qr = runPut $ do
                 cmd T.ScSearch
                 verCmd T.VcSearch
-                num $ 
+                num $
 #ifdef ONE_ONE_BETA
                       4
 #else
