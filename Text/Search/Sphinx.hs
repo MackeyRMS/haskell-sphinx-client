@@ -118,6 +118,9 @@ connect host port = do
   let hints = N.defaultHints {N.addrSocketType = N.Stream}
   addr:_ <- N.getAddrInfo (Just hints) (Just host) (Just $ show port)
   sock <- N.socket (N.addrFamily addr) (N.addrSocketType addr) (N.addrProtocol addr)
+  N.connect sock $ N.SockAddrInet
+                   (fromIntegral port :: N.PortNumber)
+                   (N.tupleToHostAddress (127, 0, 0, 1))
   connection <- N.socketToHandle sock ReadWriteMode
 
   -- connection <- connectTo host (PortNumber $ fromIntegral $ port)
