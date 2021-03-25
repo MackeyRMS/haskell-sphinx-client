@@ -1,4 +1,4 @@
-{-# LANGUAGE CPP #-}
+{-# LANGUAGE CPP               #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- The following functions are not yet implemented:
@@ -6,7 +6,7 @@
 -- resetFilters, resetGroupBy
 -- updateAttributes,
 -- buildKeyWords, status, open, close
-module Text.Search.Sphinx 
+module Text.Search.Sphinx
   ( escapeText
   , query
   , buildExcerpts
@@ -18,41 +18,59 @@ module Text.Search.Sphinx
   , Configuration(..), defaultConfig
   ) where
 
-import qualified Text.Search.Sphinx.Types as T (
-  Match,
-  Query(..),
-  VerCommand(VcSearch, VcExcerpt),
-  SearchdCommand(ScSearch, ScExcerpt),
-  Filter, Filter(..),
-  fromEnumFilter, Filter(..),
-  QueryStatus(..), toStatus, Status(..),
-  SingleResult(..), Result(..), QueryResult(..))
+import           Control.Applicative
+import           Control.Monad
+import qualified Text.Search.Sphinx.Types                as T (Filter (..),
+                                                               Match,
+                                                               Query (..),
+                                                               QueryResult (..),
+                                                               QueryStatus (..),
+                                                               Result (..),
+                                                               SearchdCommand (ScExcerpt, ScSearch),
+                                                               SingleResult (..),
+                                                               Status (..),
+                                                               VerCommand (VcExcerpt, VcSearch),
+                                                               fromEnumFilter,
+                                                               toStatus)
 
-import Text.Search.Sphinx.Configuration (Configuration(..), defaultConfig)
-import qualified Text.Search.Sphinx.ExcerptConfiguration as ExConf (ExcerptConfiguration(..))
-import Text.Search.Sphinx.Get (times, getResult, readHeader, getStr, getTxt)
-import Text.Search.Sphinx.Put (num, num64, float, enum, list, numC, strC, foldPuts,
-                              numC64, stringIntList, str, txt, cmd, verCmd)
+import           Text.Search.Sphinx.Configuration        (Configuration (..),
+                                                          defaultConfig)
+import qualified Text.Search.Sphinx.ExcerptConfiguration as ExConf (ExcerptConfiguration (..))
+import           Text.Search.Sphinx.Get                  (getResult, getStr,
+                                                          getTxt, readHeader,
+                                                          times)
+import           Text.Search.Sphinx.Put                  (cmd, enum, float,
+                                                          foldPuts, list, num,
+                                                          num64, numC, numC64,
+                                                          str, strC,
+                                                          stringIntList, txt,
+                                                          verCmd)
 
-import Data.Binary.Put (Put, runPut)
-import Data.Binary.Get (runGet, getWord32be)
-import qualified Data.ByteString.Lazy as BS
-import qualified Data.ByteString.Lazy.Char8 as BS8
-import Data.Int (Int64)
+import           Data.Binary.Get                         (getWord32be, runGet)
+import           Data.Binary.Put                         (Put, runPut)
+import qualified Data.ByteString.Lazy                    as BS
+import qualified Data.ByteString.Lazy.Char8              as BS8
+import           Data.Int                                (Int64)
 
-import Network (connectTo, PortID(PortNumber))
-import System.IO (Handle, hFlush)
-import Data.Bits ((.|.))
+-- import Network (connectTo, PortID(PortNumber))
+import qualified Control.Exception                       as E
+import qualified Network.Socket                          as N
+import qualified Network.Socket.ByteString               as N
 
-import Prelude hiding (filter, tail)
-import Data.List (nub)
 
-import Data.Text (Text)
-import qualified Data.Text as X
-import qualified Data.Text.ICU.Convert as ICU
+import           Data.Bits                               ((.|.))
+import           System.IO                               (Handle, IOMode (..),
+                                                          hFlush)
+
+import           Data.List                               (nub)
+import           Prelude                                 hiding (filter, tail)
+
+import           Data.Text                               (Text)
+import qualified Data.Text                               as X
+import qualified Data.Text.ICU.Convert                   as ICU
 
 {- the funnest way to debug this is to run the same query with an existing working client and look at the difference
- - sudo tcpflow -i lo dst port 9306 
+ - sudo tcpflow -i lo dst port 9306
 import Debug.Trace; debug a = trace (show a) a
 -}
 
@@ -99,7 +117,15 @@ simpleQuery q = T.Query q "*" X.empty
 
 connect :: String -> Int -> IO Handle
 connect host port = do
-  connection <- connectTo host (PortNumber $ fromIntegral $ port)
+  let hints = N.defaultHints {N.addrSocketType = N.Stream}
+  addr:_ <- N.getAddrInfo (Just hints) (Just host) (Just $ show port)
+  sock <- E.bracketOnError (N.openSocket addr) N.close $ \sock -> do
+    N.connect sock $ N.addrAddress addr
+    return sock
+  connection <- N.socketToHandle sock ReadWriteMode
+
+  -- legacy connection (network < 2.7)
+  -- connection <- connectTo host (PortNumber $ fromIntegral $ port)
   bs         <- BS.hGet connection 4
   let version   = runGet getWord32be bs
       myVersion = runPut (num 1)
@@ -125,12 +151,12 @@ buildExcerpts config docs indexes words = do
     T.RETRY   -> return $ T.Retry (errorMessage conv response)
     T.ERROR n -> return $ T.Error n (errorMessage conv response)
   where
-    getResults response conv = runGet ((length docs) `times` getTxt conv) response
+    getResults response conv = runGet (length docs `times` getTxt conv) response
     errorMessage conv response = runGet (getTxt conv) response
 
     makeBuildExcerpt putExcerpt = do
       cmd    T.ScExcerpt
-      verCmd T.VcExcerpt  
+      verCmd T.VcExcerpt
       num $ fromEnum $ BS.length (runPut putExcerpt)
       putExcerpt
 
@@ -152,7 +178,7 @@ buildExcerpts config docs indexes words = do
     modeFlag cfg setting value = if setting cfg then value else 0
 
     excerptFlags :: ExConf.ExcerptConfiguration -> Int
-    excerptFlags cfg = foldl (.|.) 1 (map (\(s,v) -> modeFlag cfg s v) [
+    excerptFlags cfg = foldl (.|.) 1 (map (uncurry (modeFlag cfg)) [
         (ExConf.exactPhrase,      2 )
       , (ExConf.singlePassage,    4 )
       , (ExConf.useBoundaries,    8 )
@@ -168,7 +194,7 @@ buildExcerpts config docs indexes words = do
 -- For a single query, just use the query method
 -- Easier handling of query result than runQueries'
 runQueries :: Configuration -> [T.Query] -> IO (T.Result [T.QueryResult])
-runQueries cfg qs = runQueries' cfg qs >>= return . toSearchResult
+runQueries cfg qs = toSearchResult <$> runQueries' cfg qs
   where
     --   with batched queries, each query can have an error code,
     --     regardless of the error code given for the entire batch
@@ -211,18 +237,18 @@ runQueries' config qs = do
     BS.hPut conn (request queryReq)
     hFlush conn
     getSearchResult conn conv
-  where 
+  where
     numQueries = length qs
     request qr = runPut $ do
                 cmd T.ScSearch
                 verCmd T.VcSearch
-                num $ 
+                num $
 #ifdef ONE_ONE_BETA
                       4
 #else
                       8
 #endif
-                        + (fromEnum $ BS.length (runPut qr))
+                      + fromEnum (BS.length (runPut qr))
 #ifndef ONE_ONE_BETA
                 num 0
 #endif
@@ -271,9 +297,8 @@ getResponse :: Handle -> IO (T.Status, BS.ByteString)
 getResponse conn = do
   header <- BS.hGet conn 8
   let (status, version, len) = readHeader header
-  if len == 0
-    then error "received zero-sized searchd response (bad query?)"
-    else return ()
+  when (len == 0) $
+    error "received zero-sized searchd response (bad query?)"
   response <- BS.hGet conn (fromIntegral len)
   return (status, response)
 

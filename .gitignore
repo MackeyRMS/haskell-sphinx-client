@@ -1,2 +1,4 @@
 dist/
 cabal-dev
+dist-newstyle/
+.stack-work/
