@@ -53,8 +53,10 @@ import qualified Data.ByteString.Lazy.Char8              as BS8
 import           Data.Int                                (Int64)
 
 -- import Network (connectTo, PortID(PortNumber))
+import qualified Control.Exception                       as E
 import qualified Network.Socket                          as N
 import qualified Network.Socket.ByteString               as N
+
 
 import           Data.Bits                               ((.|.))
 import           System.IO                               (Handle, IOMode (..),
@@ -117,10 +119,13 @@ connect :: String -> Int -> IO Handle
 connect host port = do
   let hints = N.defaultHints {N.addrSocketType = N.Stream}
   addr:_ <- N.getAddrInfo (Just hints) (Just host) (Just $ show port)
-  sock <- N.socket (N.addrFamily addr) (N.addrSocketType addr) (N.addrProtocol addr)
-  N.connect sock $ N.SockAddrInet
-                   (fromIntegral port :: N.PortNumber)
-                   (N.tupleToHostAddress (127, 0, 0, 1))
+  -- sock <- N.socket (N.addrFamily addr) (N.addrSocketType addr) (N.addrProtocol addr)
+  sock <- E.bracketOnError (N.openSocket addr) N.close $ \sock -> do
+    N.connect sock $ N.addrAddress addr
+    return sock
+  -- N.connectSock sock $ N.SockAddrInet
+  --                  (fromIntegral port :: N.PortNumber)
+  --                  (N.tupleToHostAddress (127, 0, 0, 1))
   connection <- N.socketToHandle sock ReadWriteMode
 
   -- connection <- connectTo host (PortNumber $ fromIntegral $ port)

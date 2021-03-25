@@ -4,29 +4,29 @@ module Text.Search.Sphinx.ExcerptConfiguration where
 
 data ExcerptConfiguration = ExcerptConfiguration {
     -- | The hostname of the Sphinx daemon
-    host :: String
+    host            :: String
     -- | The portnumber of the Sphinx daemon
-  , port :: Int
+  , port            :: Int
     -- | Encoding used to encode queries to the server, and decode server responses
-  , encoding :: String
-  , beforeMatch :: String
-  , afterMatch :: String
-  , chunkSeparator :: String
-  , limit  :: Int
-  , around :: Int
-  , exactPhrase :: Bool
-  , singlePassage :: Bool
-  , useBoundaries :: Bool
-  , weightOrder :: Bool
+  , encoding        :: String
+  , beforeMatch     :: String
+  , afterMatch      :: String
+  , chunkSeparator  :: String
+  , limit           :: Int
+  , around          :: Int
+  , exactPhrase     :: Bool
+  , singlePassage   :: Bool
+  , useBoundaries   :: Bool
+  , weightOrder     :: Bool
   -- | warning! broken on 1.10-beta (keep to default of false). Fixed on trunk
-  , queryMode :: Bool
-  , forceAllWords :: Bool
-  , limitPassages :: Int
-  , limitWords :: Int
-  , startPassageId :: Int
-  , loadFiles :: Bool
-  , htmlStripMode :: String
-  , allowEmpty :: Bool
+  , queryMode       :: Bool
+  , forceAllWords   :: Bool
+  , limitPassages   :: Int
+  , limitWords      :: Int
+  , startPassageId  :: Int
+  , loadFiles       :: Bool
+  , htmlStripMode   :: String
+  , allowEmpty      :: Bool
   , passageBoundary :: String
 }
  deriving (Show)
@@ -51,7 +51,7 @@ defaultConfig = ExcerptConfiguration {
   , useBoundaries = False
   , startPassageId = 1
   , loadFiles = False
-  , htmlStripMode = "index" -- "none", "strip", "index", and "retain". 
+  , htmlStripMode = "index" -- "none", "strip", "index", and "retain".
   , allowEmpty = False
   , passageBoundary = "none"
 }

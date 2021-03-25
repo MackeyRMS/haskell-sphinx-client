@@ -1,3 +1,5 @@
 resolver: lts-17.6
 packages:
 - .
+extra-deps:
+- network-3.1.2.1
